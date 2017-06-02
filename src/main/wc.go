@@ -2,8 +2,12 @@ package main
 
 import (
 	"fmt"
-	"mapreduce"
+	"6.824/src/mapreduce"
 	"os"
+	"unicode"
+	"strings"
+	"strconv"
+	"log"
 )
 
 //
@@ -15,6 +19,18 @@ import (
 //
 func mapF(filename string, contents string) []mapreduce.KeyValue {
 	// TODO: you have to write this function
+	kvpairs := make([]mapreduce.KeyValue,0)
+	f := func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
+	}
+	words := strings.FieldsFunc(contents, f)
+	for _, word := range words {
+		var kv mapreduce.KeyValue
+		kv.Key = word
+		kv.Value = "1"
+		kvpairs = append(kvpairs, kv)
+	}
+	return kvpairs
 }
 
 //
@@ -24,6 +40,17 @@ func mapF(filename string, contents string) []mapreduce.KeyValue {
 //
 func reduceF(key string, values []string) string {
 	// TODO: you also have to write this function
+	sum := 0
+	for _, value := range values {
+		i, err := strconv.Atoi(value)
+		if err != nil {
+			log.Fatal("reduceF: parseInt error")
+		}
+		sum += i
+	}
+	s := strconv.Itoa(sum)
+	return s
+
 }
 
 // Can be run in 3 ways:
