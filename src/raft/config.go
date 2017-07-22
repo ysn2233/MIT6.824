@@ -8,7 +8,6 @@ package raft
 // test with the original before submitting.
 //
 
-import "labrpc"
 import "log"
 import "sync"
 import "testing"
@@ -17,7 +16,10 @@ import crand "crypto/rand"
 import "encoding/base64"
 import "sync/atomic"
 import "time"
-import "fmt"
+import (
+	"fmt"
+	"6.824/src/labrpc"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
