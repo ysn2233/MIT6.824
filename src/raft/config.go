@@ -18,7 +18,7 @@ import "sync/atomic"
 import "time"
 import (
 	"fmt"
-	"6.824/src/labrpc"
+	"labrpc"
 )
 
 func randstring(n int) string {

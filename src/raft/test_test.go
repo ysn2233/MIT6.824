@@ -144,7 +144,7 @@ func TestFailNoAgree2B(t *testing.T) {
 	cfg.disconnect((leader + 1) % servers)
 	cfg.disconnect((leader + 2) % servers)
 	cfg.disconnect((leader + 3) % servers)
-
+	DPrintf("disconnected")
 	index, _, ok := cfg.rafts[leader].Start(20)
 	if ok != true {
 		t.Fatalf("leader rejected Start()")
@@ -291,6 +291,7 @@ func TestRejoin2B(t *testing.T) {
 	fmt.Printf("Test (2B): rejoin of partitioned leader ...\n")
 
 	cfg.one(101, servers)
+
 	// leader network failure
 	leader1 := cfg.checkOneLeader()
 	cfg.disconnect(leader1)
@@ -311,6 +312,7 @@ func TestRejoin2B(t *testing.T) {
 	cfg.connect(leader1)
 
 	cfg.one(104, 2)
+
 	// all together now
 	cfg.connect(leader2)
 
@@ -338,6 +340,7 @@ func TestBackup2B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.rafts[leader1].Start(rand.Int())
 	}
+
 	time.Sleep(RaftElectionTimeout / 2)
 
 	cfg.disconnect((leader1 + 0) % servers)
@@ -352,7 +355,7 @@ func TestBackup2B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.one(rand.Int(), 3)
 	}
-	println("--------------second submit finished----------------------")
+
 	// now another partitioned leader and one follower
 	leader2 := cfg.checkOneLeader()
 	other := (leader1 + 2) % servers
