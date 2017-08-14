@@ -320,7 +320,7 @@ func (rf *Raft) BroadcastAppendEntries() {
 		if i != rf.me && rf.state == LEADER {
 			if rf.nextIndex[i] > baseIndex {
 				if rf.nextIndex[i] > rf.LastLogIndex() {
-					rf.nextIndex[i] = rf.LastLogIndex()
+					rf.nextIndex[i] = rf.LastLogIndex() + 1
 				}
 				var args AppendEntriesArgs
 				args.Term = rf.currentTerm
@@ -359,6 +359,7 @@ func (rf *Raft) BroadcastAppendEntries() {
 						} else {
 							rf.nextIndex[server] = reply.UpdatedNextId
 						}
+					} else {
 					}
 				}(i, args)
 			}
@@ -370,7 +371,7 @@ func (rf *Raft) FollowerWork() {
 	select {
 	case <-rf.chanHb:
 	case <-rf.chanVote:
-	case <-time.After(time.Duration(rand.Intn(330)+700) * time.Millisecond):
+	case <-time.After(time.Duration(rand.Intn(300)+500) * time.Millisecond):
 		rf.state = CANDIDATE
 	}
 }
@@ -384,9 +385,9 @@ func (rf *Raft) CandidateWork() {
 	rf.votedCount = 1
 	go rf.BroadcastRequestVote()
 	select {
+	case <-time.After(time.Duration(rand.Intn(300)+500) * time.Millisecond):
 	case <-rf.chanHb:
 		rf.state = FOLLOWER
-	case <-time.After(time.Duration(rand.Intn(300)+300) * time.Millisecond):
 	case <-rf.chanWinLeader:
 		rf.mu.Lock()
 		rf.state = LEADER
@@ -396,7 +397,7 @@ func (rf *Raft) CandidateWork() {
 			rf.nextIndex[i] = rf.LastLogIndex() + 1
 			rf.matchIndex[i] = 0
 		}
-		log.Printf("Server %v become the leader, now term is %v\n", rf.me, rf.currentTerm)
+		//log.Printf("Server %v become the leader, now term is %v\n", rf.me, rf.currentTerm)
 		rf.mu.Unlock()
 	}
 
@@ -417,7 +418,6 @@ func (rf *Raft) LeaderCommit() {
 		}
 		if 2*count > len(rf.peers) {
 			waitingCommit = i
-			break
 		}
 	}
 	if waitingCommit != rf.commitIndex {
@@ -436,15 +436,17 @@ func (rf *Raft) ApplyCommittedLog() {
 	for {
 		select {
 		case <-rf.chanCommit:
+			rf.mu.Lock()
 			if rf.commitIndex > rf.lastApplied {
 				baseIndex := rf.log[0].Index
 				for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
 					msg := ApplyMsg{Index: i, Command: rf.log[i-baseIndex].Cmd}
 					rf.chanApply <- msg
 					rf.lastApplied = i
-					log.Printf("Server %v Apply %v, Term: %v\n", rf.me, msg, rf.currentTerm)
+					//log.Printf("Server %v Apply %v, Term: %v\n", rf.me, msg, rf.currentTerm)
 				}
 			}
+			rf.mu.Unlock()
 		}
 	}
 
@@ -480,7 +482,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.chanVote = make(chan bool)
 	rf.chanWinLeader = make(chan bool)
-	rf.chanHb = make(chan bool)
+	rf.chanHb = make(chan bool, 100)
 	rf.chanCommit = make(chan bool)
 	rf.chanApply = applyCh
 
@@ -488,7 +490,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 	//log.Printf("Read persist: loglen: %v\n", len(rf.log))
-	rf.persist()
 	go rf.MainLoop()
 	go rf.ApplyCommittedLog()
 	return rf
