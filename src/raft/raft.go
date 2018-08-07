@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"encoding/gob"
 	"labrpc"
-	//"log"
 	"math/rand"
 	"sync"
 	"time"
-	"log"
 )
 
 // import "bytes"
@@ -91,8 +89,6 @@ func (rf *Raft) GetState() (int, bool) {
 // see paper's Figure 2 for a description of what should be persistent.
 //
 func (rf *Raft) persist() {
-	// Your code here (2C).
-	// Example:
 	w := new(bytes.Buffer)
 	e := gob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
@@ -100,24 +96,13 @@ func (rf *Raft) persist() {
 	e.Encode(rf.log)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
 }
 
 //
 // restore previously persisted state.
 //
 func (rf *Raft) readPersist(data []byte) {
-	// Your code here (2C).
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := gob.NewDecoder(r)
-	// d.Decode(&rf.xxx)
-	// d.Decode(&rf.yyy)
 	if data == nil || len(data) < 1 {
-		// bootstrap without any state?
 		return
 	}
 	r := bytes.NewBuffer(data)
@@ -148,12 +133,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	defer rf.persist()
 	reply.VoteGranted = false
 
+	// Reply false if term < current term
 	if args.Term < rf.currentTerm {
-		reply.VoteGranted = false
 		reply.Term = rf.currentTerm
 		return
 	}
 
+	// Update currentTerm and vote for the candidate
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		reply.Term = rf.currentTerm
@@ -161,7 +147,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.state = FOLLOWER
 	}
 
-	// Justisfy if candidate's term is up to date
+	// Justify if candidate's term is up to date
 	logUpToDate := false
 	if args.LastLogTerm > rf.LastLogTerm() {
 		logUpToDate = true
@@ -171,6 +157,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		logUpToDate = false
 	}
 
+	// If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receivers'log, grant vote
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && logUpToDate {
 		rf.votedFor = args.CandidateId
 		reply.VoteGranted = true
@@ -255,7 +242,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	// Periodicaly heartbeat
+	// Periodically heartbeat
 	rf.chanHb <- true
 
 	if args.Term > rf.currentTerm {
@@ -289,7 +276,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Entries != nil {
 		rf.log = rf.log[:args.PrevLogIndex+1]
 		rf.log = append(rf.log, args.Entries...)
-		//log.Printf("server: %v, loglen: %v\n", rf.me, len(rf.log))
 		reply.UpdatedNextId = rf.LastLogIndex() + 1
 	}
 
@@ -348,7 +334,6 @@ func (rf *Raft) BroadcastAppendEntries() {
 							rf.state = FOLLOWER
 							rf.votedFor = -1
 							rf.mu.Unlock()
-							// log.Printf("Server %v become follower\n", rf.me)
 							return
 						}
 						if reply.Success {
@@ -377,7 +362,6 @@ func (rf *Raft) FollowerWork() {
 }
 
 func (rf *Raft) CandidateWork() {
-	//log.Printf("server %v strarts to elect\n", rf.me)
 	defer rf.persist()
 	rf.currentTerm++
 	rf.votedFor = rf.me
@@ -397,7 +381,6 @@ func (rf *Raft) CandidateWork() {
 			rf.nextIndex[i] = rf.LastLogIndex() + 1
 			rf.matchIndex[i] = 0
 		}
-		//log.Printf("Server %v become the leader, now term is %v\n", rf.me, rf.currentTerm)
 		rf.mu.Unlock()
 	}
 
@@ -409,7 +392,6 @@ func (rf *Raft) LeaderCommit() {
 	for i := rf.commitIndex + 1; i < len(rf.log); i++ {
 		count := 1
 		for j := range rf.peers {
-			//log.Printf("%v %v %v\n", j, i, rf.matchIndex[j])
 			if j == rf.me {
 				continue
 			} else if rf.matchIndex[j] >= i && rf.log[i-baseIndex].Term == rf.currentTerm {
@@ -443,7 +425,6 @@ func (rf *Raft) ApplyCommittedLog() {
 					msg := ApplyMsg{Index: i, Command: rf.log[i-baseIndex].Cmd}
 					rf.chanApply <- msg
 					rf.lastApplied = i
-					//log.Printf("Server %v Apply %v, Term: %v\n", rf.me, msg, rf.currentTerm)
 				}
 			}
 			rf.mu.Unlock()
@@ -489,7 +470,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votedCount = 1
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-	//log.Printf("Read persist: loglen: %v\n", len(rf.log))
+
 	go rf.MainLoop()
 	go rf.ApplyCommittedLog()
 	return rf
@@ -510,5 +491,5 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 }
 
 func (rf *Raft) Kill() {
-	// Your code here, if desired.
+
 }
