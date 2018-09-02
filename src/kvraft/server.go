@@ -19,9 +19,9 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 
 
 type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
+	Operation	string
+	Key 		string
+	Value		string
 }
 
 type RaftKV struct {
@@ -41,6 +41,19 @@ func (kv *RaftKV) Get(args *GetArgs, reply *GetReply) {
 }
 
 func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
+	op := Op{Operation: args.Op, Key: args.Key, Value: args.Value}
+	_, _, isLeader := kv.rf.Start(op)
+	if !isLeader {
+		reply.WrongLeader = true
+		reply.Err = ErrWrongLeader
+		return
+	} else {
+		reply.WrongLeader = false
+		reply.Err = "OK"
+		return
+	}
+
+
 	// Your code here.
 }
 
