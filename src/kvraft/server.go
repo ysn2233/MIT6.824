@@ -28,6 +28,7 @@ type RaftKV struct {
 	mu      sync.Mutex
 	me      int
 	rf      *raft.Raft
+	kvMap	map[string]string
 	applyCh chan raft.ApplyMsg
 
 	maxraftstate int // snapshot if log grows this big
@@ -37,10 +38,24 @@ type RaftKV struct {
 
 
 func (kv *RaftKV) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
+	op := Op{Operation: "Get", Key: args.Key}
+	_, _, isLeader := kv.rf.Start(op)
+	if !isLeader {
+		reply.WrongLeader = true
+		reply.Err = ErrWrongLeader
+		log.Println(reply)
+		return
+	} else {
+		reply.WrongLeader = false
+		reply.Err = "OK"
+		reply.Value = kv.kvMap[args.Key]
+		log.Println(reply)
+		return
+	}
 }
 
 func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
+	log.Println(args)
 	op := Op{Operation: args.Op, Key: args.Key, Value: args.Value}
 	_, _, isLeader := kv.rf.Start(op)
 	if !isLeader {
@@ -50,10 +65,20 @@ func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	} else {
 		reply.WrongLeader = false
 		reply.Err = "OK"
+		if op.Operation == "Put" {
+			kv.kvMap[op.Key] = op.Value
+		}
+		if op.Operation == "Append" {
+			_, ok := kv.kvMap[op.Key]
+			if !ok {
+				kv.kvMap[op.Key] = op.Value
+			} else {
+				kv.kvMap[op.Key] += op.Value
+			}
+		}
+		log.Println(reply)
 		return
 	}
-
-
 	// Your code here.
 }
 
@@ -89,6 +114,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv := new(RaftKV)
 	kv.me = me
 	kv.maxraftstate = maxraftstate
+	kv.kvMap = make(map[string]string)
 
 	// You may need initialization code here.
 

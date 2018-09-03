@@ -166,6 +166,7 @@ func GenericTest(t *testing.T, tag string, nclients int, unreliable bool, crash 
 					if v != last {
 						log.Fatalf("get wrong value, key %v, wanted:\n%v\n, got\n%v\n", key, last, v)
 					}
+
 				}
 			}
 		})
