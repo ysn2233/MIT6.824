@@ -65,7 +65,10 @@ func (ck *Clerk) Get(key string) string {
 	for {
 		var reply GetReply
 		ok := ck.servers[i].Call("RaftKV.Get", &args, &reply)
-		if ok && !reply.WrongLeader{
+		if !ok {
+			continue
+		}
+		if reply.Err=="OK" && !reply.WrongLeader{
 			ck.mu.Lock()
 			ck.leader = i
 			ck.mu.Unlock()
@@ -103,7 +106,10 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		time.Sleep(time.Millisecond*100)
 		var reply PutAppendReply
 		ok := ck.servers[i].Call("RaftKV.PutAppend", &args, &reply)
-		if ok && !reply.WrongLeader{
+		if !ok {
+			continue
+		}
+		if reply.Err=="OK" && !reply.WrongLeader{
 			ck.mu.Lock()
 			ck.leader = i
 			ck.mu.Unlock()

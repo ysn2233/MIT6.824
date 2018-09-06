@@ -76,8 +76,6 @@ func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 }
 
 func (kv * RaftKV) runOp(op Op) Err {
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
 	// agreement with raft
 	idx, _, isLeader := kv.rf.Start(op)
 	if !isLeader {
@@ -87,11 +85,12 @@ func (kv * RaftKV) runOp(op Op) Err {
 	// create a Op channel to store command log based on log index
 	// because it needs to be consistent with the common written into raft logs
 	opCh, ok := kv.opLogs[idx]
+	kv.mu.Lock()
 	if !ok {
 		opCh = make(chan Op)
 		kv.opLogs[idx] = opCh
 	}
-
+	kv.mu.Unlock()
 	select {
 		case logOp := <- opCh:
 			if logOp == op {
@@ -110,26 +109,23 @@ func (kv *RaftKV) ApplyLoop() {
 		msg := <- kv.applyCh
 		index := msg.Index
 		op := msg.Command.(Op)
-		log.Println(op)
-		if op.Seq <= kv.clientSeq[op.ClientId] {
-			log.Println("hello")
-			continue
-		}
-		kv.mu.Lock()
-		switch op.Operation {
-		case "Put":
-			kv.kvData[op.Key] = op.Value
-		case "Append":
-			if _, ok := kv.kvData[op.Key]; !ok {
+		if op.Seq > kv.clientSeq[op.ClientId] {
+			kv.mu.Lock()
+			switch op.Operation {
+			case "Put":
 				kv.kvData[op.Key] = op.Value
-			} else {
-				kv.kvData[op.Key] += op.Value
+			case "Append":
+				if _, ok := kv.kvData[op.Key]; !ok {
+					kv.kvData[op.Key] = op.Value
+				} else {
+					kv.kvData[op.Key] += op.Value
+				}
 			}
+			kv.clientSeq[op.ClientId] = op.Seq
+			kv.mu.Unlock()
 		}
-		kv.clientSeq[op.ClientId] = op.Seq
 
 		opCh, ok := kv.opLogs[index]
-		kv.mu.Unlock()
 		if ok {
 			// clear the channel
 			select {
