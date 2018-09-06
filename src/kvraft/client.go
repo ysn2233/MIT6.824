@@ -16,6 +16,8 @@ type Clerk struct {
 	n 			int
 	leader		int
 	mu			sync.Mutex
+	seq			int64
+	clientId	int64
 	// You will have to modify this struct.
 }
 
@@ -31,7 +33,9 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck.servers = servers
 	ck.n = len(ck.servers)
 	ck.leader = 0
-	// You'll have to add code here.
+	ck.seq = 0	// sequence number to identify the sent message to avoid duplicate
+	ck.clientId = nrand()
+
 	return ck
 }
 
@@ -48,14 +52,17 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) Get(key string) string {
+	ck.seq++
 
 	args := GetArgs{
-		Key: key,
+		Key: 		key,
+		Seq: 		ck.seq,
+		ClientId:	ck.clientId,
 	}
 
 	i := ck.leader
+
 	for {
-		time.Sleep(time.Millisecond*300)
 		var reply GetReply
 		ok := ck.servers[i].Call("RaftKV.Get", &args, &reply)
 		if ok && !reply.WrongLeader{
@@ -81,16 +88,19 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
+	ck.seq++
 
 	args := PutAppendArgs {
 		Key:	key,
 		Value:	value,
 		Op:		op,
+		Seq:	ck.seq,
+		ClientId: ck.clientId,
 	}
 
 	i := ck.leader
 	for  {
-		time.Sleep(time.Millisecond*300)
+		time.Sleep(time.Millisecond*100)
 		var reply PutAppendReply
 		ok := ck.servers[i].Call("RaftKV.PutAppend", &args, &reply)
 		if ok && !reply.WrongLeader{

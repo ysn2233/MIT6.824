@@ -6,6 +6,7 @@ import (
 	"log"
 	"raft"
 	"sync"
+	"time"
 )
 
 const Debug = 0
@@ -22,14 +23,18 @@ type Op struct {
 	Operation	string
 	Key 		string
 	Value		string
+	Seq			int64
+	ClientId	int64
 }
 
 type RaftKV struct {
-	mu      sync.Mutex
-	me      int
-	rf      *raft.Raft
-	kvMap	map[string]string
-	applyCh chan raft.ApplyMsg
+	mu      	sync.Mutex
+	me      	int
+	rf      	*raft.Raft
+	kvData  	map[string]string 	// kv database
+	applyCh 	chan raft.ApplyMsg
+	opLogs  	map[int]chan Op		// stored command based on log index
+	clientSeq	map[int64]int64		// record the sequence number of each client
 
 	maxraftstate int // snapshot if log grows this big
 
@@ -38,48 +43,103 @@ type RaftKV struct {
 
 
 func (kv *RaftKV) Get(args *GetArgs, reply *GetReply) {
-	op := Op{Operation: "Get", Key: args.Key}
-	_, _, isLeader := kv.rf.Start(op)
-	if !isLeader {
+	op := Op{Operation: "Get", Key: args.Key, Seq: args.Seq, ClientId: args.ClientId}
+	result := kv.runOp(op)
+	if result != OK {
 		reply.WrongLeader = true
-		reply.Err = ErrWrongLeader
-		log.Println(reply)
-		return
+		reply.Err = result
 	} else {
+		kv.mu.Lock()
 		reply.WrongLeader = false
-		reply.Err = "OK"
-		reply.Value = kv.kvMap[args.Key]
-		log.Println(reply)
-		return
+		val, ok := kv.kvData[args.Key]
+		if !ok {
+			reply.Err = ErrNoKey
+		} else {
+			reply.Err = OK
+			reply.Value = val
+		}
+		kv.mu.Unlock()
 	}
 }
 
 func (kv *RaftKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	log.Println(args)
-	op := Op{Operation: args.Op, Key: args.Key, Value: args.Value}
-	_, _, isLeader := kv.rf.Start(op)
-	if !isLeader {
+	op := Op{Operation: args.Op, Key: args.Key, Value: args.Value, Seq: args.Seq, ClientId: args.ClientId}
+	result := kv.runOp(op)
+	if result != OK {
 		reply.WrongLeader = true
-		reply.Err = ErrWrongLeader
-		return
+		reply.Err = result
 	} else {
 		reply.WrongLeader = false
-		reply.Err = "OK"
-		if op.Operation == "Put" {
-			kv.kvMap[op.Key] = op.Value
-		}
-		if op.Operation == "Append" {
-			_, ok := kv.kvMap[op.Key]
-			if !ok {
-				kv.kvMap[op.Key] = op.Value
+		reply.Err = OK
+	}
+
+}
+
+func (kv * RaftKV) runOp(op Op) Err {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	// agreement with raft
+	idx, _, isLeader := kv.rf.Start(op)
+	if !isLeader {
+		return ErrWrongLeader
+	}
+
+	// create a Op channel to store command log based on log index
+	// because it needs to be consistent with the common written into raft logs
+	opCh, ok := kv.opLogs[idx]
+	if !ok {
+		opCh = make(chan Op)
+		kv.opLogs[idx] = opCh
+	}
+
+	select {
+		case logOp := <- opCh:
+			if logOp == op {
+				return OK
 			} else {
-				kv.kvMap[op.Key] += op.Value
+				return ErrWrongLeader
+			}
+		case <- time.After(2000 * time.Millisecond):
+			return Timeout
+		}
+}
+
+// a go-routine function listen to the applyCh channel from raft
+func (kv *RaftKV) ApplyLoop() {
+	for {
+		msg := <- kv.applyCh
+		index := msg.Index
+		op := msg.Command.(Op)
+		log.Println(op)
+		if op.Seq <= kv.clientSeq[op.ClientId] {
+			log.Println("hello")
+			continue
+		}
+		kv.mu.Lock()
+		switch op.Operation {
+		case "Put":
+			kv.kvData[op.Key] = op.Value
+		case "Append":
+			if _, ok := kv.kvData[op.Key]; !ok {
+				kv.kvData[op.Key] = op.Value
+			} else {
+				kv.kvData[op.Key] += op.Value
 			}
 		}
-		log.Println(reply)
-		return
+		kv.clientSeq[op.ClientId] = op.Seq
+
+		opCh, ok := kv.opLogs[index]
+		kv.mu.Unlock()
+		if ok {
+			// clear the channel
+			select {
+				case <- opCh:
+				default:
+			}
+
+			opCh <- op
+		}
 	}
-	// Your code here.
 }
 
 //
@@ -114,13 +174,16 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv := new(RaftKV)
 	kv.me = me
 	kv.maxraftstate = maxraftstate
-	kv.kvMap = make(map[string]string)
+	kv.kvData = make(map[string]string)
+	kv.opLogs = make(map[int]chan Op)
+	kv.clientSeq = make(map[int64]int64)
 
 	// You may need initialization code here.
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
+	go kv.ApplyLoop()
 	// You may need initialization code here.
 
 	return kv
