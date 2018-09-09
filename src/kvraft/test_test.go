@@ -346,14 +346,13 @@ func TestOnePartition(t *testing.T) {
 	case <-time.After(30 * 100 * time.Millisecond):
 		t.Fatalf("Put did not complete")
 	}
-
 	select {
 	case <-done1:
 	case <-time.After(30 * 100 * time.Millisecond):
 		t.Fatalf("Get did not complete")
 	default:
 	}
-
+	log.Println("now")
 	check(t, ck, "1", "15")
 
 	fmt.Printf("  ... Passed\n")
