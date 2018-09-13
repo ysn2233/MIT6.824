@@ -51,7 +51,6 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) Get(key string) string {
-	ck.mu.Lock()
 	ck.seq++
 
 	args := GetArgs{
@@ -59,7 +58,6 @@ func (ck *Clerk) Get(key string) string {
 		Seq: 		ck.seq,
 		ClientId:	ck.clientId,
 	}
-	ck.mu.Unlock()
 	i := ck.leader
 
 	for {
@@ -91,7 +89,6 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	ck.mu.Lock()
 	ck.seq++
 
 	args := PutAppendArgs {
@@ -101,7 +98,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		Seq:	ck.seq,
 		ClientId: ck.clientId,
 	}
-	ck.mu.Unlock()
+
 	i := ck.leader
 	for  {
 		// time.Sleep(100 * time.Millisecond)

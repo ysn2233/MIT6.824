@@ -87,6 +87,11 @@ func (kv * RaftKV) runOp(op Op) Err {
 		opCh = make(chan Op)
 		kv.opLogs[idx] = opCh
 	}
+	defer func() {
+		kv.mu.Lock()
+		delete(kv.opLogs, idx)
+		kv.mu.Unlock()
+	}()
 	select {
 		case logOp := <- opCh:
 			if logOp == op {
@@ -103,9 +108,9 @@ func (kv * RaftKV) runOp(op Op) Err {
 func (kv *RaftKV) ApplyLoop() {
 	for {
 		msg := <- kv.applyCh
+		kv.mu.Lock()
 		index := msg.Index
 		op := msg.Command.(Op)
-		kv.mu.Lock()
 		if op.Seq > kv.clientSeq[op.ClientId] {
 			switch op.Operation {
 			case "Put":
@@ -116,6 +121,7 @@ func (kv *RaftKV) ApplyLoop() {
 				} else {
 					kv.kvData[op.Key] += op.Value
 				}
+			default:
 			}
 			kv.clientSeq[op.ClientId] = op.Seq
 		}

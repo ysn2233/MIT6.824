@@ -38,6 +38,46 @@ type LogEntry struct {
 	Index int
 }
 
+type RequestVoteArgs struct {
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
+}
+
+type RequestVoteReply struct {
+	Term        int
+	VoteGranted bool
+}
+
+type AppendEntriesArgs struct {
+	Term         int
+	LeaderId     int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []LogEntry
+	LeaderCommit int
+}
+
+type AppendEntriesReply struct {
+	Term          int
+	Success       bool
+	UpdatedNextId int
+}
+
+type InstallSnapshotArgs struct {
+	Term				int
+	LeaderId			int
+	LastIncludedIndex	int
+	LastIncludedTerm	int
+	offset				int
+	data				[]byte
+	done				bool
+}
+
+type InstallSnapshotResult struct {
+	term				int
+}
 //
 // A Go object implementing a single Raft peer.
 //
@@ -79,7 +119,6 @@ func (rf *Raft) LastLogTerm() int {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
 	return rf.currentTerm, rf.state == LEADER
 }
 
@@ -110,20 +149,6 @@ func (rf *Raft) readPersist(data []byte) {
 	d.Decode(&rf.currentTerm)
 	d.Decode(&rf.votedFor)
 	d.Decode(&rf.log)
-}
-
-// RequestVote RPC args
-type RequestVoteArgs struct {
-	Term         int
-	CandidateId  int
-	LastLogIndex int
-	LastLogTerm  int
-}
-
-// RequestVote RPC Reply
-type RequestVoteReply struct {
-	Term        int
-	VoteGranted bool
 }
 
 // RequestVote RPC handler.
@@ -214,21 +239,6 @@ func (rf *Raft) BroadcastRequestVote() {
 			}
 		}(i, args)
 	}
-}
-
-type AppendEntriesArgs struct {
-	Term         int
-	LeaderId     int
-	PrevLogIndex int
-	PrevLogTerm  int
-	Entries      []LogEntry
-	LeaderCommit int
-}
-
-type AppendEntriesReply struct {
-	Term          int
-	Success       bool
-	UpdatedNextId int
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -352,6 +362,14 @@ func (rf *Raft) BroadcastAppendEntries() {
 	}
 }
 
+func (rf *Raft) DiscardLog() {
+
+}
+
+func (rf *Raft) InstallSnapshot() {
+
+}
+
 func (rf *Raft) FollowerWork() {
 	select {
 	case <-rf.chanHb:
@@ -418,16 +436,16 @@ func (rf *Raft) ApplyCommittedLog() {
 	for {
 		select {
 		case <-rf.chanCommit:
-			rf.mu.Lock()
 			if rf.commitIndex > rf.lastApplied {
 				baseIndex := rf.log[0].Index
 				for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
+					rf.mu.Lock()
 					msg := ApplyMsg{Index: i, Command: rf.log[i-baseIndex].Cmd}
 					rf.chanApply <- msg
 					rf.lastApplied = i
+					rf.mu.Unlock()
 				}
 			}
-			rf.mu.Unlock()
 		}
 	}
 
@@ -486,7 +504,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.log = append(rf.log, LogEntry{Term: term, Cmd: command})
 		rf.persist()
 	}
-
 	return index, term, isLeader
 }
 

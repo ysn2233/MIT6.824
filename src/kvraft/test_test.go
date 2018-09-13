@@ -352,7 +352,6 @@ func TestOnePartition(t *testing.T) {
 		t.Fatalf("Get did not complete")
 	default:
 	}
-	log.Println("now")
 	check(t, ck, "1", "15")
 
 	fmt.Printf("  ... Passed\n")
