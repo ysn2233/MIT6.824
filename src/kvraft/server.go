@@ -7,6 +7,7 @@ import (
 	"raft"
 	"sync"
 	"time"
+	"bytes"
 )
 
 const Debug = 0
@@ -82,11 +83,13 @@ func (kv * RaftKV) runOp(op Op) Err {
 	}
 	// create a Op channel to store command log based on log index
 	// because it needs to be consistent with the common written into raft logs
+	kv.mu.Lock()
 	opCh, ok := kv.opLogs[idx]
 	if !ok {
 		opCh = make(chan Op)
 		kv.opLogs[idx] = opCh
 	}
+	kv.mu.Unlock()
 	defer func() {
 		kv.mu.Lock()
 		delete(kv.opLogs, idx)
@@ -108,34 +111,59 @@ func (kv * RaftKV) runOp(op Op) Err {
 func (kv *RaftKV) ApplyLoop() {
 	for {
 		msg := <- kv.applyCh
-		kv.mu.Lock()
-		index := msg.Index
-		op := msg.Command.(Op)
-		if op.Seq > kv.clientSeq[op.ClientId] {
-			switch op.Operation {
-			case "Put":
-				kv.kvData[op.Key] = op.Value
-			case "Append":
-				if _, ok := kv.kvData[op.Key]; !ok {
+		if msg.UseSnapshot {
+			var LastIncludedIndex int
+			var LastIncludedTerm int
+			c := bytes.NewBuffer(msg.Snapshot)
+			decoder := gob.NewDecoder(c)
+			kv.kvData = make(map[string]string)
+			kv.opLogs = make(map[int]chan Op)
+			kv.mu.Lock()
+			decoder.Decode(&LastIncludedIndex)
+			decoder.Decode(&LastIncludedTerm)
+			decoder.Decode(&kv.kvData)
+			decoder.Decode(&kv.opLogs)
+			kv.mu.Unlock()
+		} else {
+			kv.mu.Lock()
+			index := msg.Index
+			op := msg.Command.(Op)
+			if op.Seq > kv.clientSeq[op.ClientId] {
+				switch op.Operation {
+				case "Put":
 					kv.kvData[op.Key] = op.Value
-				} else {
-					kv.kvData[op.Key] += op.Value
+				case "Append":
+					if _, ok := kv.kvData[op.Key]; !ok {
+						kv.kvData[op.Key] = op.Value
+					} else {
+						kv.kvData[op.Key] += op.Value
+					}
+				default:
 				}
-			default:
+				kv.clientSeq[op.ClientId] = op.Seq
 			}
-			kv.clientSeq[op.ClientId] = op.Seq
-		}
-		kv.mu.Unlock()
-		opCh, ok := kv.opLogs[index]
-		if ok {
-			// clear the channel
-			select {
+			opCh, ok := kv.opLogs[index]
+			if ok {
+				// clear the channel
+				select {
 				case <- opCh:
 				default:
+				}
+				opCh <- op
 			}
 
-			opCh <- op
+			if kv.maxraftstate != -1 && kv.rf.PersisterSize() > kv.maxraftstate {
+				w := new(bytes.Buffer)
+				e := gob.NewEncoder(w)
+				e.Encode(kv.kvData)
+				e.Encode(kv.opLogs)
+				data := w.Bytes()
+				go kv.rf.GoSnapshot(msg.Index, data)
+			}
+			kv.mu.Unlock()
+
 		}
+
 	}
 }
 
