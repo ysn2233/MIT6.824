@@ -410,7 +410,6 @@ func TestSnapshotRPC(t *testing.T) {
 
 	ck.Put("a", "A")
 	check(t, ck, "a", "A")
-
 	// a bunch of puts into the majority partition.
 	cfg.partition([]int{0, 1}, []int{2})
 	{
@@ -421,7 +420,6 @@ func TestSnapshotRPC(t *testing.T) {
 		time.Sleep(electionTimeout)
 		ck1.Put("b", "B")
 	}
-
 	// check that the majority partition has thrown away
 	// most of its log entries.
 	if cfg.LogSize() > 2*maxraftstate {
@@ -471,7 +469,6 @@ func TestSnapshotSize(t *testing.T) {
 		ck.Put("x", "1")
 		check(t, ck, "x", "1")
 	}
-
 	// check that servers have thrown away most of their log entries
 	if cfg.LogSize() > 2*maxraftstate {
 		t.Fatalf("logs were not trimmed (%v > 2*%v)", cfg.LogSize(), maxraftstate)

@@ -70,13 +70,13 @@ type InstallSnapshotArgs struct {
 	LeaderId			int
 	LastIncludedIndex	int
 	LastIncludedTerm	int
-	offset				int
-	data				[]byte
-	done				bool
+	Offset				int
+	Data				[]byte
+	Done				bool
 }
 
 type InstallSnapshotResult struct {
-	term				int
+	Term				int
 }
 //
 // A Go object implementing a single Raft peer.
@@ -104,6 +104,10 @@ type Raft struct {
 	chanHb        chan bool     // channel for heartbeating
 	chanCommit    chan bool     // channel for commiting msg
 	chanApply     chan ApplyMsg // channel for applying msg
+}
+// Return the size of persister
+func (rf *Raft) PersisterSize() int {
+	return rf.persister.RaftStateSize()
 }
 
 // Return the last log index on this peer
@@ -288,7 +292,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.log = append(rf.log, args.Entries...)
 		reply.UpdatedNextId = rf.LastLogIndex() + 1
 	}
-
 	if args.LeaderCommit > rf.commitIndex {
 		if args.LeaderCommit <= rf.LastLogIndex() {
 			rf.commitIndex = args.LeaderCommit
@@ -357,17 +360,96 @@ func (rf *Raft) BroadcastAppendEntries() {
 					} else {
 					}
 				}(i, args)
+			} else {
+				var args InstallSnapshotArgs
+				args.Term = rf.currentTerm
+				args.LeaderId = rf.me
+				args.LastIncludedIndex = rf.log[0].Index
+				args.LastIncludedTerm = rf.log[0].Term
+				args.Data = rf.persister.snapshot
+				go func(server int, args InstallSnapshotArgs) {
+					var reply *InstallSnapshotResult
+					ok := rf.sendInstallSnapshot(i, args, reply)
+					if ok {
+						if reply.Term > rf.currentTerm {
+							rf.currentTerm = reply.Term
+							rf.state = FOLLOWER
+							rf.votedFor = -1
+						} else {
+							rf.nextIndex[server] = args.LastIncludedIndex + 1
+							rf.matchIndex[server] = args.LastIncludedIndex + 1
+						}
+					}
+				}(i, args)
+
 			}
 		}
 	}
 }
 
-func (rf *Raft) DiscardLog() {
+func (rf *Raft) CutLog(lastIncludedIndex int, lastIncludedTerm int, log []LogEntry) []LogEntry {
+	var newLog []LogEntry
+	for i:= len(log) - 1; i >=0; i-- {
+		if log[i].Index == lastIncludedIndex && log[i].Term == lastIncludedTerm {
+			newLog = append(newLog, log[i:]...)
+			break
+		}
+	}
+
+	return newLog
 
 }
 
-func (rf *Raft) InstallSnapshot() {
+// Go snapshot
+func (rf *Raft) GoSnapshot(index int, snapshot []byte) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	baseIndex := rf.log[0].Index
+	lastIndex := rf.LastLogIndex()
 
+	if index <= baseIndex || index > lastIndex {
+		return
+	}
+
+	var newLog []LogEntry
+	newLog = append(newLog, rf.log[index - baseIndex:lastIndex - baseIndex + 1]...)
+
+	rf.log = newLog
+	rf.persist()
+
+	w := new(bytes.Buffer)
+	e := gob.NewEncoder(w)
+	e.Encode(newLog[0].Index)
+	e.Encode(newLog[0].Term)
+
+	data := w.Bytes()
+	data = append(data, snapshot...)
+	rf.persister.SaveSnapshot(data)
+}
+
+func (rf *Raft) InstallSnapshot(args InstallSnapshotArgs, reply *InstallSnapshotResult) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		return
+	}
+	rf.chanHb <- true
+	rf.state = FOLLOWER
+	rf.currentTerm = rf.currentTerm
+	rf.persister.SaveSnapshot(args.Data)
+	rf.log = rf.CutLog(args.LastIncludedIndex, args.LastIncludedTerm, rf.log)
+	msg := ApplyMsg{UseSnapshot:true, Snapshot: args.Data}
+	rf.lastApplied = args.LastIncludedIndex
+	rf.commitIndex = args.LastIncludedIndex
+
+	rf.persist()
+	rf.chanApply <- msg
+}
+
+func (rf *Raft) sendInstallSnapshot(server int, args InstallSnapshotArgs, reply *InstallSnapshotResult) bool {
+	ok := rf.peers[server].Call("Raft.InstallSnapshot", args, reply)
+	return ok
 }
 
 func (rf *Raft) FollowerWork() {
